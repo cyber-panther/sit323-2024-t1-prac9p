@@ -1,0 +1,279 @@
+Title: combined_output.txt
+Content:
+
+
+Title: createDeployment.yaml
+Content:
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mongo
+  template:
+    metadata:
+      labels:
+        app: mongo
+    spec:
+      containers:
+        - image: mongo
+          name: mongo
+          args: ["--dbpath", "/data/db"]
+          env:
+            - name: MONGO_INITDB_ROOT_USERNAME
+              value: "admin"
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              value: "password"
+          volumeMounts:
+            - mountPath: /data/db
+              name: mongo-volume
+      volumes:
+        - name: mongo-volume
+          persistentVolumeClaim:
+            claimName: mongo-pvc
+
+Title: createPersistentVolume.yaml
+Content:
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mongo-pv
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteMany
+  local:
+    path: C:\Users\AGRIM\OneDrive - Deakin University\my stuff\study\SIT323\Code\sit323-2024-t1-prac7p\
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - docker-desktop
+
+Title: createPersistentVolumeClaim.yaml
+Content:
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mongo-pvc
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: "demo-storage"
+
+Title: createService.yaml
+Content:
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo-svc
+spec:
+  ports:
+    - port: 27017
+      protocol: TCP
+      targetPort: 27017
+      nodePort: 32000
+  selector:
+    app: mongo
+  type: NodePort
+
+  
+
+Title: createStorageClass.yaml
+Content:
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: demo-storage
+provisioner: docker.io/hostpath
+volumeBindingMode: Immediate
+reclaimPolicy: Delete
+
+Title: db.js
+Content:
+const { MongoClient } = require('mongodb');
+
+const uri = process.env.MONGO_URI || 'mongodb://mongo-svc:32000/';
+const client = new MongoClient(uri);
+
+let db;
+
+const connectDB = async () => {
+  if (!db) {
+    await client.connect();
+    db = client.db('Test');
+  }
+  return db;
+};
+
+module.exports = connectDB;
+
+
+Title: doc.py
+Content:
+import os
+
+def get_files_in_folder(folder_path):
+    """Get a list of all files in the folder."""
+    return [f for f in os.listdir(folder_path) if os.path.isfile(os.path.join(folder_path, f))]
+
+def write_content_to_file(output_file, folder_path):
+    """Write the title and content of each file in the folder to the output file."""
+    with open(output_file, 'w') as outfile:
+        for filename in get_files_in_folder(folder_path):
+            file_path = os.path.join(folder_path, filename)
+            with open(file_path, 'r') as infile:
+                title = filename
+                content = infile.read()
+                outfile.write(f"Title: {title}\n")
+                outfile.write("Content:\n")
+                outfile.write(content)
+                outfile.write("\n\n")
+
+if __name__ == "__main__":
+    folder_path = input("Enter the folder path: ")
+    output_file = "combined_output.txt"
+    write_content_to_file(output_file, folder_path)
+    print(f"All files in '{folder_path}' have been combined into '{output_file}'")
+
+
+Title: index.js
+Content:
+const express = require("express");
+const connectDB = require('./db'); // import the database connection module
+const { ObjectId } = require('mongodb');
+
+const app = express();
+app.use(express.json());
+
+const checkNumbers = (num1, num2) => {
+    if (isNaN(num1))
+        throw new Error("Invalid number num1");
+    if (isNaN(num2))
+        throw new Error("Invalid number num2");
+}
+
+const calculate = (num1, num2, operation) => {
+    let result;
+    switch (operation) {
+        case "add":
+            result = num1 + num2;
+            break;
+        case "subtract":
+            result = num1 - num2;
+            break;
+        case "multiply":
+            result = num1 * num2;
+            break;
+        case "divide":
+            if (num2 === 0)
+                throw new Error("Division by zero is not allowed");
+            result = num1 / num2;
+            break;
+        case "exponential":
+            result = Math.pow(num1, num2);
+            break;
+        case "squareRoot":
+            if (num1 < 0)
+                throw new Error("Square root of a negative number is not allowed");
+            result = Math.sqrt(num1);
+            break;
+        case "modulo":
+            result = num1 % num2;
+            break;
+        default:
+            throw new Error("Invalid operation");
+    }
+    return result;
+}
+
+// Create calculation history in MongoDB
+const createHistory = async (operation, num1, num2, result) => {
+    const db = await connectDB();
+    const collection = db.collection('calculation_history');
+    const record = {
+        operation,
+        num1,
+        num2,
+        result,
+        createdAt: new Date()
+    };
+    await collection.insertOne(record);
+};
+
+// Read calculation history from MongoDB
+app.get('/history', async (req, res) => {
+    try {
+        const db = await connectDB();
+        const collection = db.collection('calculation_history');
+        const history = await collection.find().toArray();
+        res.json(history);
+    } catch (error) {
+        res.status(500).json({ error: error.toString() });
+    }
+});
+
+// Update a calculation history record in MongoDB
+app.put('/history/:id', async (req, res) => {
+    const { id } = req.params;
+    const { operation, num1, num2, result } = req.body;
+
+    try {
+        const db = await connectDB();
+        const collection = db.collection('calculation_history');
+        await collection.updateOne({ _id: new ObjectId(id) }, { $set: { operation, num1, num2, result } });
+        res.json({ message: 'Record updated successfully' });
+    } catch (error) {
+        res.status(500).json({ error: error.toString() });
+    }
+});
+
+// Delete a calculation history record from MongoDB
+app.delete('/history/:id', async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const db = await connectDB();
+        const collection = db.collection('calculation_history');
+        await collection.deleteOne({ _id: new ObjectId(id) });
+        res.json({ message: 'Record deleted successfully' });
+    } catch (error) {
+        res.status(500).json({ error: error.toString() });
+    }
+});
+
+// Calculation endpoints
+const operations = ["add", "subtract", "multiply", "divide", "exponential", "squareRoot", "modulo"];
+operations.forEach(operation => {
+    app.get(`/${operation}`, async (req, res) => {
+        try {
+            const num1 = parseFloat(req.query.num1);
+            const num2 = parseFloat(req.query.num2);
+
+            checkNumbers(num1, num2);
+
+            const result = calculate(num1, num2, operation);
+            await createHistory(operation, num1, num2, result);
+            res.json(`Parameters ${num1} and ${num2} received for operation -> ${operation}: And the result is ${result}`);
+        } catch (error) {
+            res.status(500).json({ error: error.toString() });
+        }
+    });
+});
+
+const port = 3040;
+app.listen(port, () => {
+    console.log("Listening to port " + port);
+});
+
+
