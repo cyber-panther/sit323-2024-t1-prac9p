@@ -8,7 +8,7 @@ spec:
   accessModes:
     - ReadWriteMany
   local:
-    path: C:\Users\AGRIM\OneDrive - Deakin University\my stuff\study\SIT323\Code\sit323-2024-t1-prac7p\
+    path: /c/Users/AGRIM/OneDrive - Deakin University/my stuff/study/SIT323/Code/sit323-2024-t1-prac9p
   nodeAffinity:
     required:
       nodeSelectorTerms:
